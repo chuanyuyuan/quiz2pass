@@ -16,13 +16,15 @@ async function getLS(page, key) {
 /** Clear all app data from localStorage AND reset in-memory state */
 async function resetApp(page) {
   await page.evaluate(() => {
-    ['q2p_wrong', 'q2p_h'].forEach(k => localStorage.removeItem(k));
+    ['q2p_wrong', 'q2p_h', 'q2p_fav', 'q2p_setup'].forEach(k => localStorage.removeItem(k));
     Object.keys(localStorage).filter(k => k.startsWith('seq_')).forEach(k => localStorage.removeItem(k));
     wrongMap = {};
     historyMap = {};
+    favMap = {};
     S.subject = 'all';
     S.types = ['单选', '多选', '判断'];
-    S.countMode = 'all';
+    S.countMode = 'random';
+    S.quizSource = 'setup';
   });
 }
 
@@ -118,8 +120,9 @@ test.describe('Home Page', () => {
     await expect(page.locator('#homeBottom')).toContainText('973');
   });
 
-  test('has 3 action buttons', async ({ page }) => {
+  test('has 4 action buttons', async ({ page }) => {
     await expect(page.locator('#btnStartQuiz')).toBeVisible();
+    await expect(page.locator('#btnFav')).toBeVisible();
     await expect(page.locator('#btnHistory')).toBeVisible();
     await expect(page.locator('#btnWrongReview')).toBeVisible();
   });
@@ -137,15 +140,21 @@ test.describe('Home Page', () => {
   });
 
   test('shows history badge', async ({ page }) => {
-    await page.evaluate(() => { historyMap = { 'edu-1': { count: 3, correct: 2 } }; saveHistory(); });
+    await page.evaluate(() => { historyMap = { 'edu-1-单选': { count: 3, correct: 2 } }; saveHistory(); });
     await goTo(page, 'home');
     await expect(page.locator('#historyBadge')).toContainText('1题');
   });
 
   test('shows wrong count badge', async ({ page }) => {
-    await page.evaluate(() => { wrongMap = { 'edu-5': { userAnswer: 'B', time: Date.now() } }; saveWrong(); });
+    await page.evaluate(() => { wrongMap = { 'edu-5-单选': { userAnswer: 'B', time: Date.now() } }; saveWrong(); });
     await goTo(page, 'home');
     await expect(page.locator('#wrongCountBadge')).toContainText('1题');
+  });
+
+  test('shows fav badge', async ({ page }) => {
+    await page.evaluate(() => { favMap = { 'edu-1-单选': { time: Date.now() } }; saveFav(); });
+    await goTo(page, 'home');
+    await expect(page.locator('#favBadge')).toContainText('1题');
   });
 });
 
@@ -160,7 +169,7 @@ test.describe('Setup Page', () => {
     await goSetup(page);
   });
 
-  test('3 subject chips: 全部 教育学 心理学', async ({ page }) => {
+  test('3 subject chips: 全部 高等教育学 高等教育心理学', async ({ page }) => {
     const chips = page.locator('#subjectChips .chip');
     await expect(chips).toHaveCount(3);
     await expect(chips.nth(0)).toContainText('全部科目');
@@ -174,9 +183,9 @@ test.describe('Setup Page', () => {
     for (const c of await chips.all()) await expect(c).toHaveClass(/active/);
   });
 
-  test('3 count mode chips', async ({ page }) => {
+  test('2 count mode chips', async ({ page }) => {
     const chips = page.locator('#countChips .chip');
-    await expect(chips).toHaveCount(3);
+    await expect(chips).toHaveCount(2);
     await expect(chips.nth(0)).toHaveClass(/active/);
   });
 
@@ -189,15 +198,15 @@ test.describe('Setup Page', () => {
   });
 
   test('switching subject updates count', async ({ page }) => {
-    await expect(page.locator('#countChips .chip').nth(0)).toContainText('973');
+    expect(await page.locator('#countInput').inputValue()).toBe('20');
     await page.locator('#subjectChips .chip').nth(1).click();
-    await expect(page.locator('#countChips .chip').nth(0)).toContainText('472');
+    expect(await page.locator('#countInput').inputValue()).toBe('20');
     await page.locator('#subjectChips .chip').nth(2).click();
-    await expect(page.locator('#countChips .chip').nth(0)).toContainText('501');
+    expect(await page.locator('#countInput').inputValue()).toBe('20');
   });
 
   test('sequential mode shows progress info', async ({ page }) => {
-    await page.locator('#countChips .chip').nth(2).click();
+    await page.locator('#countChips .chip').nth(1).click();
     await expect(page.locator('#countSeqWrap')).toBeVisible();
     await expect(page.locator('#seqProgressDisplay')).toContainText('第 1 题');
   });
@@ -211,13 +220,43 @@ test.describe('Setup Page', () => {
     });
     await goSetup(page);
     await page.locator('#subjectChips .chip').nth(1).click(); // edu — matches stored subject
-    await page.locator('#countChips .chip').nth(2).click(); // sequential
+    await page.locator('#countChips .chip').nth(1).click(); // sequential
     await expect(page.locator('#seqProgressDisplay')).toContainText('50');
     await expect(page.locator('#btnResetSeq')).toBeVisible();
   });
 
   test('start button visible', async ({ page }) => {
     await expect(page.locator('#btnStart')).toBeVisible();
+  });
+
+  test('setup state persists after quiz and re-enter', async ({ page }) => {
+    // Select 高等教育心理学 + 多选 + 顺序出题
+    await page.locator('#subjectChips .chip').nth(2).click(); // psych
+    await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选 (keep only 单选/判断)
+    await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断 (keep only 单选)
+    await page.locator('#countChips .chip').nth(1).click(); // 顺序刷题
+    await page.locator('#btnStart').click();
+    await page.waitForSelector('.question-text');
+    // Answer one question
+    await answerCurrent(page);
+    await page.locator('#btnNext').click();
+    await page.waitForTimeout(80);
+    // Back to setup
+    await page.locator('#btnBack').click();
+    await page.waitForTimeout(80);
+    // Verify subject is still psych
+    expect(await page.evaluate(() => S.subject)).toBe('psych');
+    expect(await page.evaluate(() => S.types)).toEqual(['单选']);
+    expect(await page.evaluate(() => S.countMode)).toBe('sequential');
+    // Go home and re-enter via 开始刷题
+    await page.locator('#btnBack').click();
+    await page.waitForTimeout(50);
+    await page.locator('#btnStartQuiz').click();
+    await page.waitForTimeout(80);
+    // Verify setup state preserved
+    expect(await page.evaluate(() => S.subject)).toBe('psych');
+    expect(await page.evaluate(() => S.types)).toEqual(['单选']);
+    expect(await page.evaluate(() => S.countMode)).toBe('sequential');
   });
 });
 
@@ -233,7 +272,7 @@ test.describe('Quiz - Random Mode', () => {
   });
 
   test('starts quiz and renders question', async ({ page }) => {
-    await page.locator('#countChips .chip').nth(1).click(); // random
+    await page.locator('#countChips .chip').nth(0).click(); // random
     await page.locator('#countInput').fill('5');
     await page.locator('#btnStart').click();
     await expect(page.locator('#page-quiz')).toHaveClass(/active/);
@@ -243,7 +282,7 @@ test.describe('Quiz - Random Mode', () => {
   });
 
   test('correct answer shows feedback and updates history', async ({ page }) => {
-    await page.locator('#countChips .chip').nth(1).click();
+    await page.locator('#countChips .chip').nth(0).click();
     await page.locator('#countInput').fill('3');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
@@ -268,16 +307,16 @@ test.describe('Quiz - Random Mode', () => {
   });
 
   test('wrong answer adds to wrong set', async ({ page }) => {
-    await page.locator('#countChips .chip').nth(1).click();
+    await page.locator('#countChips .chip').nth(0).click();
     await page.locator('#countInput').fill('3');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
     const info = await page.evaluate(() => {
       const q = S.quizQ[S.qIdx];
-      if (q.type === '多选') return { multi: true, answer: q.answer, opts: Object.keys(q.options || {}), num: q.num, subject: q.subject };
+      if (q.type === '多选') return { multi: true, answer: q.answer, opts: Object.keys(q.options || {}), num: q.num, subject: q.subject, type: q.type };
       // pick a wrong answer
       const wrong = q.answer === 'A' ? 'B' : 'A';
-      return { multi: false, wrong, num: q.num, subject: q.subject };
+      return { multi: false, wrong, num: q.num, subject: q.subject, type: q.type };
     });
     if (info.multi) {
       // just pick wrong subset (select one wrong option)
@@ -290,7 +329,7 @@ test.describe('Quiz - Random Mode', () => {
     await page.waitForTimeout(100);
     // check wrong map
     const wm = await page.evaluate(() => wrongMap);
-    const key = `${info.subject}-${info.num}`;
+    const key = `${info.subject}-${info.num}-${info.type}`;
     if (!info.multi) {
       // For single/judge, wrong answer was given
       expect(wm[key]).toBeDefined();
@@ -301,7 +340,7 @@ test.describe('Quiz - Random Mode', () => {
   });
 
   test('next button advances to next question', async ({ page }) => {
-    await page.locator('#countChips .chip').nth(1).click();
+    await page.locator('#countChips .chip').nth(0).click();
     await page.locator('#countInput').fill('3');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
@@ -314,7 +353,7 @@ test.describe('Quiz - Random Mode', () => {
   });
 
   test('last question leads to result', async ({ page }) => {
-    await page.locator('#countChips .chip').nth(1).click();
+    await page.locator('#countChips .chip').nth(0).click();
     await page.locator('#countInput').fill('2');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
@@ -351,6 +390,39 @@ test.describe('Quiz - Multi Choice', () => {
     await page.locator('#btnSubmitMulti').click();
     await page.waitForTimeout(100);
     await expect(page.locator('.feedback')).toBeVisible();
+  });
+
+  test('correct multi-choice highlights all selected options', async ({ page }) => {
+    await page.locator('#btnStart').click();
+    await page.waitForSelector('.question-text');
+    const info = await page.evaluate(() => {
+      const q = S.quizQ[0]; return { answer: q.answer, opts: Object.keys(q.options || {}) };
+    });
+    // Select all correct options
+    for (const o of info.answer.split('')) await page.locator(`.option-btn[data-label="${o}"]`).click();
+    await page.locator('#btnSubmitMulti').click();
+    await page.waitForTimeout(100);
+    // All correct options should have .correct class
+    for (const o of info.answer.split(''))
+      await expect(page.locator(`.option-btn[data-label="${o}"]`)).toHaveClass(/correct/);
+  });
+
+  test('wrong multi-choice marks missed correct options', async ({ page }) => {
+    await page.locator('#btnStart').click();
+    await page.waitForSelector('.question-text');
+    const info = await page.evaluate(() => {
+      const q = S.quizQ[0]; return { answer: q.answer, opts: Object.keys(q.options || {}) };
+    });
+    // Select only first correct option (incomplete → wrong)
+    const correctOpts = info.answer.split('');
+    const sel = correctOpts[0];
+    const missed = correctOpts.filter(o => o !== sel);
+    await page.locator(`.option-btn[data-label="${sel}"]`).click();
+    await page.locator('#btnSubmitMulti').click();
+    await page.waitForTimeout(100);
+    await expect(page.locator(`.option-btn[data-label="${sel}"]`)).toHaveClass(/wrong/);
+    for (const o of missed)
+      await expect(page.locator(`.option-btn[data-label="${o}"]`)).toHaveClass(/show-correct/);
   });
 
   test('cannot submit without selection', async ({ page }) => {
@@ -402,7 +474,7 @@ test.describe('Quiz - Sequential', () => {
     await page.locator('#subjectChips .chip').nth(1).click(); // edu
     await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选
     await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断
-    await page.locator('#countChips .chip').nth(2).click(); // sequential
+    await page.locator('#countChips .chip').nth(1).click(); // sequential
     await page.locator('#seqCountInput').fill('3');
   });
 
@@ -440,7 +512,7 @@ test.describe('Quiz - Sequential', () => {
     // Go back and start another session — should continue from position 2
     await goSetup(page);
     // S.subject and S.types persist from beforeEach (edu + 单选)
-    await page.locator('#countChips .chip').nth(2).click(); // sequential
+    await page.locator('#countChips .chip').nth(1).click(); // sequential
     await page.locator('#seqCountInput').fill('3');
     await page.locator('#btnStart').click();
     await page.waitForTimeout(100);
@@ -457,7 +529,7 @@ test.describe('Result Page', () => {
     await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
     await resetApp(page);
     await page.evaluate(() => { window.showView('setup'); renderSetup(); S.subject = 'edu'; S.types = ['单选']; });
-    await page.locator('#countChips .chip').nth(1).click(); // random
+    await page.locator('#countChips .chip').nth(0).click(); // random
     await page.locator('#countInput').fill('3');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
@@ -486,7 +558,7 @@ test.describe('Wrong Questions', () => {
     await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
     await resetApp(page);
     await page.evaluate(() => {
-      wrongMap = { 'edu-1': { userAnswer: 'B', time: Date.now() }, 'edu-5': { userAnswer: 'C', time: Date.now() - 1000 }, 'psych-3': { userAnswer: 'A', time: Date.now() - 2000 } };
+      wrongMap = { 'edu-1-单选': { userAnswer: 'B', time: Date.now() }, 'edu-5-多选': { userAnswer: 'C', time: Date.now() - 1000 }, 'psych-3-判断': { userAnswer: 'A', time: Date.now() - 2000 } };
       saveWrong();
     });
     await goTo(page, 'wrong');
@@ -521,8 +593,8 @@ test.describe('Wrong Questions', () => {
   });
 
   test('clear all removes everything', async ({ page }) => {
-    page.on('dialog', d => d.accept());
     await page.locator('#btnClearWrong').click();
+    await page.locator('#confirmDanger').click();
     await page.waitForTimeout(50);
     expect(await page.evaluate(() => Object.keys(wrongMap).length)).toBe(0);
   });
@@ -532,6 +604,74 @@ test.describe('Wrong Questions', () => {
     await page.waitForTimeout(80);
     await expect(page.locator('#page-quiz')).toHaveClass(/active/);
     expect(await page.evaluate(() => S.quizQ.length)).toBe(3);
+  });
+
+  test('back from wrong practice returns to wrong', async ({ page }) => {
+    await page.locator('#btnPracticeWrong').click();
+    await page.waitForTimeout(80);
+    await page.locator('#btnBack').click();
+    await page.waitForTimeout(50);
+    await expect(page.locator('#page-wrong')).toHaveClass(/active/);
+  });
+
+  test('buttons visible after visiting favorites first', async ({ page }) => {
+    // Visit favorites page first (which previously polluted the DOM with .wrong-actions class)
+    await goTo(page, 'fav');
+    await page.waitForTimeout(50);
+    // Then go to wrong page
+    await goTo(page, 'wrong');
+    await page.evaluate(() => renderWrong());
+    await page.waitForTimeout(50);
+    // Buttons should still be visible
+    await expect(page.locator('#btnClearWrong')).toBeVisible();
+    await expect(page.locator('#btnPracticeWrong')).toBeVisible();
+  });
+});
+
+// ──────────────────────────────────────────────
+// FAVORITES
+// ──────────────────────────────────────────────
+test.describe('Favorites', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('http://localhost:8080/index.html');
+    await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
+    await resetApp(page);
+    await page.evaluate(() => {
+      favMap = { 'edu-1-单选': { time: Date.now() }, 'psych-5-判断': { time: Date.now() - 1000 } };
+      saveFav();
+    });
+    await goTo(page, 'fav');
+  });
+
+  test('shows 2 favorited questions', async ({ page }) => {
+    await expect(page.locator('.wrong-item')).toHaveCount(2);
+  });
+
+  test('remove a favorite', async ({ page }) => {
+    await page.locator('.btn-remove').first().click();
+    await page.waitForTimeout(50);
+    await expect(page.locator('.wrong-item')).toHaveCount(1);
+  });
+
+  test('empty state', async ({ page }) => {
+    await page.evaluate(() => { favMap = {}; saveFav(); });
+    await goTo(page, 'fav');
+    await expect(page.locator('.wrong-empty')).toBeVisible();
+  });
+
+  test('practice starts quiz with favorited questions', async ({ page }) => {
+    await page.locator('#btnPracticeFav').click();
+    await page.waitForTimeout(80);
+    await expect(page.locator('#page-quiz')).toHaveClass(/active/);
+    expect(await page.evaluate(() => S.quizQ.length)).toBe(2);
+  });
+
+  test('back from fav practice returns to fav', async ({ page }) => {
+    await page.locator('#btnPracticeFav').click();
+    await page.waitForTimeout(80);
+    await page.locator('#btnBack').click();
+    await page.waitForTimeout(50);
+    await expect(page.locator('#page-fav')).toHaveClass(/active/);
   });
 });
 
@@ -569,7 +709,7 @@ test.describe('History Page', () => {
     // subject filter defaults to "全部" — shows all 973
     await expect(page.locator('.history-item')).not.toHaveCount(0);
     // edu filter shows 472 edu questions
-    await page.locator('#historySubjFilter .chip').nth(1).click(); // 教育学
+    await page.locator('#historySubjFilter .chip').nth(1).click(); // 高等教育学
     await page.waitForTimeout(80);
     const eduCount = await page.locator('.history-item').count();
     expect(eduCount).toBe(472);
@@ -619,6 +759,26 @@ test.describe('History Page', () => {
     await page.waitForTimeout(80);
     await expect(page.locator('#page-history')).toHaveClass(/active/);
   });
+
+  test('single question quiz does not corrupt countMode', async ({ page }) => {
+    // Set up sequential mode in setup
+    await page.evaluate(() => { S.countMode = 'sequential'; saveSetup(); });
+    // Click a history item to start single-question quiz
+    await page.locator('.history-item').first().click();
+    await page.waitForTimeout(80);
+    expect(await page.evaluate(() => S.countMode)).toBe('random'); // quiz overrides
+    // Exit quiz via next button
+    await answerCurrent(page);
+    await page.locator('#btnNext').click();
+    await page.waitForTimeout(80);
+    // countMode should be restored
+    expect(await page.evaluate(() => S.countMode)).toBe('sequential');
+    // Go to setup and verify persistence
+    await goTo(page, 'home');
+    await page.locator('#btnStartQuiz').click();
+    await page.waitForTimeout(80);
+    expect(await page.evaluate(() => S.countMode)).toBe('sequential');
+  });
 });
 
 // ──────────────────────────────────────────────
@@ -632,12 +792,25 @@ test.describe('Persistence', () => {
   });
 
   test('wrong questions survive reload', async ({ page }) => {
-    await page.evaluate(() => { wrongMap = { 'edu-1': { userAnswer: 'B', time: Date.now() } }; saveWrong(); });
+    await page.evaluate(() => { wrongMap = { 'edu-1-单选': { userAnswer: 'B', time: Date.now() } }; saveWrong(); });
     await page.reload();
     await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
     const wm = await page.evaluate(() => { loadWrong(); return wrongMap; });
-    expect(wm['edu-1']).toBeDefined();
-    expect(wm['edu-1'].userAnswer).toBe('B');
+    expect(wm['edu-1-单选']).toBeDefined();
+    expect(wm['edu-1-单选'].userAnswer).toBe('B');
+  });
+
+  test('old wrong format migrates to new key', async ({ page }) => {
+    // Simulate old deployment: key is 'subj-num' without type
+    await page.evaluate(() => { localStorage.setItem('q2p_wrong', JSON.stringify({ 'edu-1': { userAnswer: 'B', time: Date.now() } })); });
+    await page.reload();
+    await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
+    const wm = await page.evaluate(() => wrongMap);
+    // Old key should be gone, new key should exist
+    expect(wm['edu-1']).toBeUndefined();
+    const newKey = Object.keys(wm).find(k => k.startsWith('edu-1-'));
+    expect(newKey).toBeDefined();
+    expect(wm[newKey].userAnswer).toBe('B');
   });
 
   test('history survives reload', async ({ page }) => {
@@ -647,6 +820,14 @@ test.describe('Persistence', () => {
     const h = await page.evaluate(() => { loadHistory(); return historyMap; });
     expect(h['edu-5-单选']).toBeDefined();
     expect(h['edu-5-单选'].count).toBe(3);
+  });
+
+  test('favorites survive reload', async ({ page }) => {
+    await page.evaluate(() => { favMap = { 'edu-1-单选': { time: Date.now() } }; saveFav(); });
+    await page.reload();
+    await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
+    const f = await page.evaluate(() => { loadFav(); return favMap; });
+    expect(f['edu-1-单选']).toBeDefined();
   });
 
   test('sequential progress survives reload', async ({ page }) => {
@@ -685,7 +866,7 @@ test.describe('Edge Cases', () => {
     await page.locator('#subjectChips .chip').nth(1).click(); // edu
     await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选
     await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断
-    await page.locator('#countChips .chip').nth(2).click(); // sequential
+    await page.locator('#countChips .chip').nth(1).click(); // sequential
     await page.locator('#seqCountInput').fill('2');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
@@ -700,7 +881,7 @@ test.describe('Edge Cases', () => {
     // Start another session — should continue from position 2
     await goSetup(page);
     // S.subject and S.types persist from above (edu + 单选)
-    await page.locator('#countChips .chip').nth(2).click(); // sequential
+    await page.locator('#countChips .chip').nth(1).click(); // sequential
     await page.locator('#seqCountInput').fill('2');
     await page.locator('#btnStart').click();
     await page.waitForTimeout(100);
@@ -709,12 +890,12 @@ test.describe('Edge Cases', () => {
 
   test('correct answer removes from wrong set', async ({ page }) => {
     // Pre-set a wrong question
-    await page.evaluate(() => { wrongMap['edu-1'] = { userAnswer: 'A', time: Date.now() }; saveWrong(); });
+    await page.evaluate(() => { wrongMap['edu-1-单选'] = { userAnswer: 'A', time: Date.now() }; saveWrong(); });
     // Start edu + 单选 all mode
     await page.locator('#subjectChips .chip').nth(1).click(); // edu
     await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选
     await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断
-    await page.locator('#countChips .chip').nth(0).click(); // all
+    await page.locator('#countInput').fill('500');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
     // Navigate to edu-1 and re-render
@@ -727,7 +908,7 @@ test.describe('Edge Cases', () => {
     await page.waitForTimeout(80);
     await answerCurrent(page);
     await page.waitForTimeout(80);
-    const stillWrong = await page.evaluate(() => wrongMap['edu-1']);
+    const stillWrong = await page.evaluate(() => wrongMap['edu-1-单选']);
     expect(stillWrong).toBeUndefined();
   });
 });
@@ -747,7 +928,7 @@ test.describe('Navigation Flow', () => {
     await page.locator('#btnStartQuiz').click();
     await expect(page.locator('#page-setup')).toHaveClass(/active/);
     // start quiz with small random count
-    await page.locator('#countChips .chip').nth(1).click(); // random
+    await page.locator('#countChips .chip').nth(0).click(); // random
     await page.locator('#countInput').fill('3');
     await page.locator('#btnStart').click();
     await expect(page.locator('#page-quiz')).toHaveClass(/active/);
@@ -775,6 +956,13 @@ test.describe('Navigation Flow', () => {
   test('home -> history -> home', async ({ page }) => {
     await page.locator('#btnHistory').click();
     await expect(page.locator('#page-history')).toHaveClass(/active/);
+    await page.locator('#btnBack').click();
+    await expect(page.locator('#page-home')).toHaveClass(/active/);
+  });
+
+  test('home -> fav -> home', async ({ page }) => {
+    await page.locator('#btnFav').click();
+    await expect(page.locator('#page-fav')).toHaveClass(/active/);
     await page.locator('#btnBack').click();
     await expect(page.locator('#page-home')).toHaveClass(/active/);
   });

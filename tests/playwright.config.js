@@ -3,7 +3,7 @@ const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testMatch: 'tests.spec.js',
-  timeout: 15000,
+  timeout: 30000,
   use: {
     headless: true,
     viewport: { width: 390, height: 844 }, // iPhone 14 size

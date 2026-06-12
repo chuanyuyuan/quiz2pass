@@ -19,7 +19,17 @@
       "Bash(Select-String -Pattern \"answerCurrent|answered|fbClass|nbClass|ok:\")",
       "PowerShell($env:DEBUG=\"pw:test\"; cd D:\\\\projects\\\\Quiz2Pass; npx playwright test --reporter=list -g \"next button advances\" 2>&1)",
       "PowerShell(cd D:\\\\projects\\\\Quiz2Pass; npx playwright test --reporter=list -g \"next button advances\" 2>&1 | ForEach-Object { if \\($_ -match \"DEBUG|answerCurrent|browser error\"\\) { $_ } })",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(r)",
+      "Bash(powershell -Command \"\\(Get-Content 'D:\\\\projects\\\\Quiz2Pass\\\\tests\\\\tests.spec.js' -Raw\\) -replace \\\\\"\\\\['q2p_wrong', 'q2p_h'\\\\].*?\\\\`n.*?wrongMap = \\\\{\\\\};.*?\\\\`n.*?historyMap = \\\\{\\\\};\\\\\", \\\\\"['q2p_wrong', 'q2p_h', 'q2p_fav'].forEach\\(k => localStorage.removeItem\\(k\\)\\);`r`n    Object.keys\\(localStorage\\).filter\\(k => k.startsWith\\('seq_'\\)\\).forEach\\(k => localStorage.removeItem\\(k\\)\\);`r`n    wrongMap = {};`r`n    historyMap = {};`r`n    favMap = {};\\\\\" \")",
+      "Bash(Set-Content 'D:\\\\projects\\\\Quiz2Pass\\\\tests\\\\tests.spec.js' -Encoding utf8)",
+      "Bash(pkill -f \"python3 -m http.server\")",
+      "Bash(curl *)",
+      "Bash(node -e ' *)",
+      "Bash(git checkout *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Get-Item *)",
+      "PowerShell(Get-Content *)"
     ]
   }
 }
