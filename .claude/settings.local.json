@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(curl -s http://localhost:8080/index.html)",
+      "Bash(curl -s http://localhost:8080/edu_quiz_data.json)",
+      "PowerShell(Stop-Job *)",
+      "Bash(python3 -m http.server 8080)",
+      "Bash(curl -s -o /dev/null -w \"index.html: %{http_code}\\\\n\" http://localhost:8080/index.html)",
+      "Bash(curl -s -o /dev/null -w \"data.js: %{http_code}\\\\n\" http://localhost:8080/data.js)",
+      "Bash(curl -s -o /dev/null -w \"edu.json: %{http_code}\\\\n\" http://localhost:8080/edu_quiz_data.json)",
+      "Bash(kill %1)",
+      "Bash(npx playwright *)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(set PLAYWRIGHT_BROWSERS_PATH=0)",
+      "Bash(Get-ChildItem -Recurse -Path D:\\\\projects\\\\Quiz2Pass\\\\test-results -Filter \"error-context.md\")",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Select-String -Pattern \"answerCurrent|answered|fbClass|nbClass|ok:\")",
+      "PowerShell($env:DEBUG=\"pw:test\"; cd D:\\\\projects\\\\Quiz2Pass; npx playwright test --reporter=list -g \"next button advances\" 2>&1)",
+      "PowerShell(cd D:\\\\projects\\\\Quiz2Pass; npx playwright test --reporter=list -g \"next button advances\" 2>&1 | ForEach-Object { if \\($_ -match \"DEBUG|answerCurrent|browser error\"\\) { $_ } })",
+      "Bash(gh auth *)"
+    ]
+  }
+}
