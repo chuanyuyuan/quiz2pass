@@ -235,7 +235,7 @@ test.describe('Setup Page', () => {
     expect(await page.evaluate(() => S.skipCorrect)).toBe(false);
   });
 
-  test('skip correct toggle on filters out mastered questions', async ({ page }) => {
+  test('skip correct toggle on filters out attempted questions', async ({ page }) => {
     await page.locator('#subjectChips .chip').nth(1).click(); // edu
     await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选
     await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断
@@ -251,20 +251,20 @@ test.describe('Setup Page', () => {
     await page.evaluate(() => { S.skipCorrect=true; saveSetup(); updateCountUI(getFilteredQuestions().length); });
     await page.waitForTimeout(80);
     const totalText = await page.locator('#setupTotal').textContent();
-    expect(totalText).toContain('未掌握');
+    expect(totalText).toContain('未刷');
     await page.locator('#btnStart').click();
     await page.waitForSelector('.question-text');
-    // The mastered question should NOT be in the quiz
+    // The attempted question should NOT be in the quiz
     const hasFirst = await page.evaluate((fq) => S.quizQ.some(q => q.num===fq.num && q.subject===fq.subject && q.type===fq.type), firstQ);
     expect(hasFirst).toBe(false);
   });
 
-  test('all mastered with toggle on shows toast', async ({ page }) => {
-    // Mark all edu+单选 questions as mastered
+  test('all attempted with toggle on shows toast', async ({ page }) => {
+    // Mark all edu+单选 questions as attempted
     await page.evaluate(() => {
       allQuestions.filter(q => q.subject==='edu' && q.type==='单选').forEach(q => {
         const k = q.subject + '-' + q.num + '-' + q.type;
-        historyMap[k] = { count: 1, correct: 1 };
+        historyMap[k] = { count: 1, correct: 0 };
       });
       saveHistory();
     });
@@ -276,7 +276,7 @@ test.describe('Setup Page', () => {
     await page.waitForTimeout(50);
     await page.locator('#btnStart').click();
     await expect(page.locator('#toast')).toBeVisible();
-    await expect(page.locator('#toast')).toContainText('已掌握');
+    await expect(page.locator('#toast')).toContainText('已刷完');
   });
 
   test('skip correct toggle persists across reload', async ({ page }) => {
@@ -879,6 +879,20 @@ test.describe('Persistence', () => {
     const h = await page.evaluate(() => { loadHistory(); return historyMap; });
     expect(h['edu-5-单选']).toBeDefined();
     expect(h['edu-5-单选'].count).toBe(3);
+  });
+
+  test('old history format migrates to new key', async ({ page }) => {
+    // Simulate old deployment: key is 'subj-num' without type
+    await page.evaluate(() => { localStorage.setItem('q2p_h', JSON.stringify({ 'edu-5': { count: 3, correct: 2 } })); });
+    await page.reload();
+    await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
+    const h = await page.evaluate(() => historyMap);
+    // Old key should be gone, new key should exist
+    expect(h['edu-5']).toBeUndefined();
+    const newKey = Object.keys(h).find(k => k.startsWith('edu-5-'));
+    expect(newKey).toBeDefined();
+    expect(h[newKey].count).toBe(3);
+    expect(h[newKey].correct).toBe(2);
   });
 
   test('favorites survive reload', async ({ page }) => {

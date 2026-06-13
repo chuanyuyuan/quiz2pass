@@ -369,7 +369,7 @@ button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;-we
     </div>
     <div class="setup-section">
       <div class="toggle-row">
-        <label class="toggle-label" for="skipCorrectToggle">跳过已答对题目</label>
+        <label class="toggle-label" for="skipCorrectToggle">跳过已刷题目</label>
         <label class="toggle-switch">
           <input type="checkbox" id="skipCorrectToggle" onchange="S.skipCorrect=this.checked;saveSetup();updateCountUI(getFilteredQuestions().length)">
           <span class="toggle-slider" id="skipCorrectSlider"></span>
@@ -520,7 +520,7 @@ function migrateWrongKeys(){
   let migrated=false;
   for(const k of Object.keys(wrongMap)){
     const parts=k.split('-');
-    if(parts.length===2){
+    if(parts.length===2&&/^(edu|psych)$/.test(parts[0])&&/^\d+$/.test(parts[1])){
       const q=findQuestion(parts[0],parseInt(parts[1]));
       if(q){wrongMap[parts[0]+'-'+parts[1]+'-'+q.type]=wrongMap[k];migrated=true;}
       delete wrongMap[k];
@@ -539,7 +539,7 @@ function clearWrong(){wrongMap={};saveWrong()}
 
 // ===== SETUP PERSISTENCE =====
 function loadSetup(){
-  try{const d=localStorage.getItem('q2p_setup');if(d){const v=JSON.parse(d);Object.assign(S,v)}}catch(e){}
+  try{const d=localStorage.getItem('q2p_setup');if(d){const v=JSON.parse(d);Object.assign(S,v);if(!['random','sequential'].includes(S.countMode))S.countMode='random'}}catch(e){}
 }
 function saveSetup(){
   try{localStorage.setItem('q2p_setup',JSON.stringify({
@@ -560,11 +560,23 @@ function toggleFav(key){
 function isFav(key){return !!favMap[key]}
 
 // ===== HISTORY =====
-let historyMap={}; // "edu-5":{count:3,correct:2}
+let historyMap={}; // "edu-5-单选":{count:3,correct:2}
 function loadHistory(){
   try{const d=localStorage.getItem('q2p_h');if(d)historyMap=JSON.parse(d)}catch(e){}
 }
 function saveHistory(){try{localStorage.setItem('q2p_h',JSON.stringify(historyMap))}catch(e){}}
+function migrateHistoryKeys(){
+  let migrated=false;
+  for(const k of Object.keys(historyMap)){
+    const parts=k.split('-');
+    if(parts.length===2&&/^(edu|psych)$/.test(parts[0])&&/^\d+$/.test(parts[1])){
+      const q=findQuestion(parts[0],parseInt(parts[1]));
+      if(q){historyMap[parts[0]+'-'+parts[1]+'-'+q.type]=historyMap[k];migrated=true;}
+      delete historyMap[k];
+    }
+  }
+  if(migrated)saveHistory();
+}
 function updateHistory(subj,num,type,isCorrect){
   const k=subj+'-'+num+'-'+type;
   if(!historyMap[k])historyMap[k]={count:0,correct:0};
@@ -628,7 +640,7 @@ function showView(v){
   }
 }
 document.getElementById('btnBack').addEventListener('click',()=>{
-  if(S.view==='quiz'&&S.fromHistory)S.countMode=S._restoreCountMode;
+  if(S.view==='quiz'&&S.fromHistory)S.countMode=(S._restoreCountMode||'random');
   const h={home:'home',setup:'home',quiz:S.quizSource||'setup',result:'home',fav:'home',wrong:'home',history:'home'};
   showView(h[S.view]||'home');
 });
@@ -722,7 +734,7 @@ function renderCountChips(){
 }
 function updateCountUI(total){
   const avail=S.skipCorrect?getFilteredTotal():total;
-  document.getElementById('setupTotal').innerHTML=`当前筛选：共 <strong>${total}</strong> 题`+((S.skipCorrect&&avail<total)?` · 未掌握 <strong>${avail}</strong> 题`:'');
+  document.getElementById('setupTotal').innerHTML=`当前筛选：共 <strong>${total}</strong> 题`+((S.skipCorrect&&avail<total)?` · 未刷 <strong>${avail}</strong> 题`:'');
   const rw=document.getElementById('countRandomWrap');
   const sw=document.getElementById('countSeqWrap');
   rw.style.display=S.countMode==='random'?'flex':'none';
@@ -753,7 +765,7 @@ function updateCountUI(total){
   document.getElementById('btnResetSeq').onclick=()=>{
     showConfirm('确定从头开始吗？已有的刷题进度将被清空',()=>{
       removeSeqProgress();
-      updateCountUI(total);
+      updateCountUI(getFilteredQuestions().length);
       toast('顺序进度已重置');
     });
   };
@@ -766,12 +778,12 @@ function getFilteredQuestions(){
 function getFilteredTotal(){
   const qs=getFilteredQuestions();
   if(!S.skipCorrect)return qs.length;
-  let mastered=0;
+  let skipped=0;
   for(const q of qs){
     const hk=q.subject+'-'+q.num+'-'+q.type;
-    if(historyMap[hk]&&historyMap[hk].correct>0)mastered++;
+    if(historyMap[hk])skipped++;
   }
-  return qs.length-mastered;
+  return qs.length-skipped;
 }
 
 document.getElementById('btnStart').addEventListener('click',()=>{
@@ -780,15 +792,15 @@ document.getElementById('btnStart').addEventListener('click',()=>{
   if(S.skipCorrect){
     qs=qs.filter(q=>{
       const hk=q.subject+'-'+q.num+'-'+q.type;
-      return !historyMap[hk]||historyMap[hk].correct===0;
+      return !historyMap[hk];
     });
-    if(!qs.length){toast('所有题目已掌握！');return}
+    if(!qs.length){toast('所有题目已刷完！');return}
   }
   if(S.countMode==='sequential'){
     qs.sort((a,b)=>a.num-b.num);
     const prog=getSeqProgress();
-    const start=prog?prog.position:0;
-    if(start>=qs.length){toast('顺序刷题已完成，请点击"从头开始"');return}
+    let start=prog?prog.position:0;
+    if(start>=qs.length)start=0;
     let n=parseInt(document.getElementById('seqCountInput').value)||20;
     n=Math.max(1,Math.min(n,qs.length-start));
     qs=qs.slice(start,start+n);
@@ -926,7 +938,7 @@ document.getElementById('btnStar').addEventListener('click',()=>{
 });
 document.getElementById('btnNext').addEventListener('click',()=>{
   if(S.fromHistory||S.qIdx>=S.quizQ.length-1){
-    if(S.fromHistory){S.countMode=S._restoreCountMode;showView('history');return}
+    if(S.fromHistory){S.countMode=(S._restoreCountMode||'random');showView('history');return}
     showView('result');renderResult();return;
   }
   S.qIdx++;renderQuestion();
@@ -982,18 +994,20 @@ function renderWrongList(){
   const entries=Object.entries(wrongMap).filter(([k])=>wrongFilter==='all'||k.startsWith(wrongFilter+'-'));
   if(!entries.length){container.innerHTML='<div class="wrong-empty">暂无错题，继续保持！</div>';return}
   container.innerHTML='<div class="wrong-list" id="wrongList"></div>';
-  const list=document.getElementById('wrongList');
+  let h='';
   entries.forEach(([k,v])=>{
     const [subj,numStr,type]=k.split('-');
+    if(!/^(edu|psych)$/.test(subj)||!/^\d+$/.test(numStr)||!/^(单选|多选|判断)$/.test(type))return;
     const q=findQuestion(subj,parseInt(numStr),type);
     if(!q)return;
-    list.innerHTML+=`<div class="wrong-item" data-key="${k}">
+    h+=`<div class="wrong-item" data-key="${k}">
       <div class="wrong-item-header"><span class="q-subject ${subj}">${SUBJECTS[subj]?.name||''}</span><span class="type-badge ${TYPE_LABELS[q.type]}" style="font-size:0.7rem">${q.type}</span></div>
       <div class="q-text">${q.text}</div>
       <div class="q-answers">${v.userAnswer?`你的答案：<span class="u-ans">${formatAnswer(v.userAnswer,q)}</span> &nbsp;|&nbsp; `:''}正确答案：<span class="c-ans">${formatAnswer(q.answer,q)}</span></div>
       <button class="btn-remove" data-key="${k}">移除</button>
     </div>`;
   });
+  document.getElementById('wrongList').innerHTML=h;
   document.querySelectorAll('.btn-remove').forEach(b=>{
     b.addEventListener('click',()=>{removeWrong(b.dataset.key);document.getElementById('topbarRight').textContent=Object.keys(wrongMap).length+'题';renderWrongList();updateHomeStats()});
   });
@@ -1021,18 +1035,20 @@ function renderFavList(){
   const entries=Object.entries(favMap).sort((a,b)=>b[1].time-a[1].time);
   if(!entries.length){container.innerHTML='<div class="wrong-empty">暂无收藏，答题时点击 ☆ 即可收藏</div>';return}
   container.innerHTML='<div class="wrong-list" id="favList"></div>';
-  const list=document.getElementById('favList');
+  let h='';
   entries.forEach(([k,v])=>{
     const [subj,numStr,type]=k.split('-');
+    if(!/^(edu|psych)$/.test(subj)||!/^\d+$/.test(numStr)||!/^(单选|多选|判断)$/.test(type))return;
     const q=findQuestion(subj,parseInt(numStr),type);
     if(!q)return;
-    list.innerHTML+=`<div class="wrong-item" data-key="${k}">
+    h+=`<div class="wrong-item" data-key="${k}">
       <div class="wrong-item-header"><span class="q-subject ${subj}">${SUBJECTS[subj]?.name||''}</span><span class="type-badge ${TYPE_LABELS[q.type]}" style="font-size:0.7rem">${q.type}</span></div>
       <div class="q-text">${q.text}</div>
       <div class="q-answers">正确答案：<span class="c-ans">${formatAnswer(q.answer,q)}</span></div>
       <button class="btn-remove btn-unfav" data-key="${k}">取消收藏</button>
     </div>`;
   });
+  document.getElementById('favList').innerHTML=h;
   document.querySelectorAll('.btn-unfav').forEach(b=>{
     b.addEventListener('click',()=>{toggleFav(b.dataset.key);document.getElementById('topbarRight').textContent=Object.keys(favMap).length+'题';renderFavList();updateHomeStats()});
   });
@@ -1080,7 +1096,7 @@ function renderHistoryList(){
     const h=historyMap[k];
     const icon=h?`<span class="h-icon ${h.correct===h.count?'done-g':'done-b'}">${h.correct===h.count?'✓':'!'}</span>`:'<span class="h-icon none">−</span>';
     const stats=h?`${h.count}刷/${h.correct}对`:'未刷';
-    html+=`<div class="history-item" data-subj="${q.subject}" data-num="${q.num}">
+    html+=`<div class="history-item" data-subj="${q.subject}" data-num="${q.num}" data-type="${q.type}">
       ${icon}
       <span class="h-num">${q.num}</span>
       <span class="h-text">${q.text}</span>
@@ -1094,7 +1110,8 @@ function renderHistoryList(){
     item.addEventListener('click',()=>{
       const subj=item.dataset.subj;
       const num=parseInt(item.dataset.num);
-      const q=findQuestion(subj,num);
+      const type=item.dataset.type;
+      const q=findQuestion(subj,num,type);
       if(!q){toast('题目未找到');return}
       S.quizQ=[{...q,subject:subj}];
       S.qIdx=0;S.answers=[];S.results=[];S.correctCount=0;S.wrongCount=0;
@@ -1144,7 +1161,7 @@ document.getElementById('wrongFilter').addEventListener('click',(e)=>{
 // ===== INIT =====
 document.addEventListener('copy',e=>e.preventDefault());
 document.addEventListener('contextmenu',e=>e.preventDefault());
-loadWrong();loadHistory();loadFav();loadSetup();initData();migrateWrongKeys();
+loadWrong();loadHistory();loadFav();loadSetup();initData();migrateWrongKeys();migrateHistoryKeys();
 </script>
 </body>
 </html>
