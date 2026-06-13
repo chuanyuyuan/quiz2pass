@@ -229,6 +229,65 @@ test.describe('Setup Page', () => {
     await expect(page.locator('#btnStart')).toBeVisible();
   });
 
+  test('skip correct toggle visible and off by default', async ({ page }) => {
+    const slider = page.locator('#skipCorrectSlider');
+    await expect(slider).toBeVisible();
+    expect(await page.evaluate(() => S.skipCorrect)).toBe(false);
+  });
+
+  test('skip correct toggle on filters out mastered questions', async ({ page }) => {
+    await page.locator('#subjectChips .chip').nth(1).click(); // edu
+    await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选
+    await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断
+    await page.locator('#countInput').fill('5');
+    await page.locator('#btnStart').click();
+    await page.waitForSelector('.question-text');
+    const firstQ = await page.evaluate(() => { const q=S.quizQ[0]; return { subject:q.subject, num:q.num, type:q.type }; });
+    await answerCurrent(page);
+    await page.waitForTimeout(80);
+    await page.locator('#btnBack').click();
+    await page.waitForTimeout(50);
+    // Turn on skip correct via JS (toggle checkbox is opacity:0 / not visible)
+    await page.evaluate(() => { S.skipCorrect=true; saveSetup(); updateCountUI(getFilteredQuestions().length); });
+    await page.waitForTimeout(80);
+    const totalText = await page.locator('#setupTotal').textContent();
+    expect(totalText).toContain('未掌握');
+    await page.locator('#btnStart').click();
+    await page.waitForSelector('.question-text');
+    // The mastered question should NOT be in the quiz
+    const hasFirst = await page.evaluate((fq) => S.quizQ.some(q => q.num===fq.num && q.subject===fq.subject && q.type===fq.type), firstQ);
+    expect(hasFirst).toBe(false);
+  });
+
+  test('all mastered with toggle on shows toast', async ({ page }) => {
+    // Mark all edu+单选 questions as mastered
+    await page.evaluate(() => {
+      allQuestions.filter(q => q.subject==='edu' && q.type==='单选').forEach(q => {
+        const k = q.subject + '-' + q.num + '-' + q.type;
+        historyMap[k] = { count: 1, correct: 1 };
+      });
+      saveHistory();
+    });
+    // Select edu+单选 and enable skipCorrect
+    await page.locator('#subjectChips .chip').nth(1).click(); // edu
+    await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选
+    await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断
+    await page.evaluate(() => { S.skipCorrect=true; saveSetup(); updateCountUI(getFilteredQuestions().length); });
+    await page.waitForTimeout(50);
+    await page.locator('#btnStart').click();
+    await expect(page.locator('#toast')).toBeVisible();
+    await expect(page.locator('#toast')).toContainText('已掌握');
+  });
+
+  test('skip correct toggle persists across reload', async ({ page }) => {
+    await page.evaluate(() => { S.skipCorrect=true; saveSetup(); });
+    await page.reload();
+    await page.waitForFunction(() => typeof allQuestions !== 'undefined' && allQuestions.length > 0);
+    await goSetup(page);
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => S.skipCorrect)).toBe(true);
+  });
+
   test('setup state persists after quiz and re-enter', async ({ page }) => {
     // Select 高等教育心理学 + 多选 + 顺序出题
     await page.locator('#subjectChips .chip').nth(2).click(); // psych
@@ -886,6 +945,37 @@ test.describe('Edge Cases', () => {
     await page.locator('#btnStart').click();
     await page.waitForTimeout(100);
     expect(await page.evaluate(() => S.quizQ[0].num)).toBe(3);
+  });
+
+  test('wrong practice does not affect sequential progress', async ({ page }) => {
+    // Setup sequential mode
+    await page.locator('#subjectChips .chip').nth(1).click(); // edu
+    await page.locator('#typeChips .chip').nth(1).click(); // deselect 多选
+    await page.locator('#typeChips .chip').nth(2).click(); // deselect 判断
+    await page.locator('#countChips .chip').nth(1).click(); // sequential
+    await page.locator('#seqCountInput').fill('3');
+    await page.locator('#btnStart').click();
+    await page.waitForSelector('.question-text');
+    // Answer first question
+    await answerCurrent(page);
+    await page.waitForTimeout(80);
+    const seqPosAfterSeq = await page.evaluate(() => JSON.parse(localStorage.getItem('seq_edu_单选')||'{}').position);
+    expect(seqPosAfterSeq).toBe(1);
+    // Go home first
+    await page.locator('#btnBack').click();
+    await page.waitForTimeout(50);
+    await goTo(page, 'home');
+    await page.waitForTimeout(50);
+    await page.evaluate(() => { wrongMap['edu-2-单选'] = { userAnswer: 'A', time: Date.now() }; saveWrong(); });
+    await page.locator('#btnWrongReview').click();
+    await page.waitForSelector('#page-wrong');
+    await page.locator('#btnPracticeWrong').click();
+    await page.waitForSelector('.question-text');
+    await answerCurrent(page);
+    await page.waitForTimeout(80);
+    // Sequential progress must NOT be affected
+    const seqPosAfterWrong = await page.evaluate(() => JSON.parse(localStorage.getItem('seq_edu_单选')||'{}').position);
+    expect(seqPosAfterWrong).toBe(1);
   });
 
   test('correct answer removes from wrong set', async ({ page }) => {

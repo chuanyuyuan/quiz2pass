@@ -120,6 +120,14 @@ button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;-we
 .count-input-wrap input:focus{border-color:var(--gold)}
 .count-input-wrap .hint{font-size:0.85rem;color:var(--text-muted)}
 .seq-info{font-size:0.85rem;color:var(--text-secondary);margin-top:2px;margin-bottom:6px}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0}
+.toggle-row label.toggle-label{font-size:0.9rem;color:var(--text-secondary);flex:1}
+.toggle-switch{position:relative;width:48px;height:28px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border);border-radius:14px;transition:0.25s;cursor:pointer}
+.toggle-slider::before{content:'';position:absolute;width:22px;height:22px;left:2px;top:2px;background:var(--text-muted);border-radius:50%;transition:0.25s}
+.toggle-switch input:checked+.toggle-slider{background:var(--gold);border-color:var(--gold)}
+.toggle-switch input:checked+.toggle-slider::before{transform:translateX(20px);background:#121214}
 .seq-info strong{color:var(--text)}
 .btn-reset-seq{font-size:0.8rem;color:var(--text-muted);padding:4px 10px;border:1px solid var(--border);border-radius:12px;background:var(--surface);margin-top:4px}
 .btn-reset-seq:active{background:var(--surface-hover)}
@@ -360,6 +368,15 @@ button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;-we
       <div class="chip-group" id="typeChips"></div>
     </div>
     <div class="setup-section">
+      <div class="toggle-row">
+        <label class="toggle-label" for="skipCorrectToggle">跳过已答对题目</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="skipCorrectToggle" onchange="S.skipCorrect=this.checked;saveSetup();updateCountUI(getFilteredQuestions().length)">
+          <span class="toggle-slider" id="skipCorrectSlider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="setup-section">
       <div class="setup-label">出题模式</div>
       <div class="chip-group" id="countChips" style="margin-bottom:10px"></div>
       <div class="count-input-wrap" id="countRandomWrap" style="display:none">
@@ -485,6 +502,7 @@ let S={
   countMode:'random',
   randomNum:20,
   seqCount:20,
+  skipCorrect:false,
   quizQ:[], qIdx:0, answers:[], answered:false, multiSelected:[],
   correctCount:0, wrongCount:0, results:[],
   fromHistory:false,
@@ -525,7 +543,7 @@ function loadSetup(){
 }
 function saveSetup(){
   try{localStorage.setItem('q2p_setup',JSON.stringify({
-    subject:S.subject,types:S.types,countMode:S.countMode,randomNum:S.randomNum,seqCount:S.seqCount
+    subject:S.subject,types:S.types,countMode:S.countMode,randomNum:S.randomNum,seqCount:S.seqCount,skipCorrect:S.skipCorrect
   }))}catch(e){}
 }
 
@@ -565,7 +583,9 @@ function getHistoryStats(){
 // ===== SEQUENTIAL PROGRESS =====
 function getSeqKey(){
   const types=[...S.types].sort().join(',');
-  return `seq_${S.subject}_${types}`;
+  let k=`seq_${S.subject}_${types}`;
+  if(S.skipCorrect)k+='_skip';
+  return k;
 }
 function getSeqProgress(){
   try{
@@ -669,6 +689,7 @@ function renderSetup(){
   const ac=sc.querySelector(`[data-subj="${S.subject}"]`);
   if(ac){ac.classList.add('active');if(S.subject==='psych')ac.classList.add('active-psych')}
   renderTypeChips();renderCountChips();
+  document.getElementById('skipCorrectToggle').checked=S.skipCorrect;
 }
 function renderTypeChips(){
   const tc=document.getElementById('typeChips');
@@ -700,7 +721,8 @@ function renderCountChips(){
   updateCountUI(total);
 }
 function updateCountUI(total){
-  document.getElementById('setupTotal').innerHTML=`当前筛选：共 <strong>${total}</strong> 题`;
+  const avail=S.skipCorrect?getFilteredTotal():total;
+  document.getElementById('setupTotal').innerHTML=`当前筛选：共 <strong>${total}</strong> 题`+((S.skipCorrect&&avail<total)?` · 未掌握 <strong>${avail}</strong> 题`:'');
   const rw=document.getElementById('countRandomWrap');
   const sw=document.getElementById('countSeqWrap');
   rw.style.display=S.countMode==='random'?'flex':'none';
@@ -713,13 +735,14 @@ function updateCountUI(total){
   const rs=document.getElementById('btnResetSeq');
   if(S.countMode==='sequential'){
     const prog=getSeqProgress();
+    const poolTotal=S.skipCorrect?avail:total;
     if(prog&&prog.position>0){
-      const remain=total-prog.position;
+      const remain=poolTotal-prog.position;
       if(remain<=0){
         pd.innerHTML='全部完成！<strong style="color:var(--correct)">✓</strong>';
         rs.style.display='inline-block';rs.textContent='重新开始';
       }else{
-        pd.innerHTML=`进度：已刷 <strong>${prog.position}</strong> / ${total} 题 · 剩余 ${remain} 题`;
+        pd.innerHTML=`进度：已刷 <strong>${prog.position}</strong> / ${poolTotal} 题 · 剩余 ${remain} 题`;
         rs.style.display='inline-block';rs.textContent='从头开始';
       }
     }else{
@@ -740,10 +763,27 @@ function getFilteredQuestions(){
   let qs=S.subject==='all'?[...allQuestions]:allQuestions.filter(q=>q.subject===S.subject);
   return qs.filter(q=>S.types.includes(q.type));
 }
+function getFilteredTotal(){
+  const qs=getFilteredQuestions();
+  if(!S.skipCorrect)return qs.length;
+  let mastered=0;
+  for(const q of qs){
+    const hk=q.subject+'-'+q.num+'-'+q.type;
+    if(historyMap[hk]&&historyMap[hk].correct>0)mastered++;
+  }
+  return qs.length-mastered;
+}
 
 document.getElementById('btnStart').addEventListener('click',()=>{
   let qs=getFilteredQuestions();
   if(!qs.length){toast('没有符合条件的题目');return}
+  if(S.skipCorrect){
+    qs=qs.filter(q=>{
+      const hk=q.subject+'-'+q.num+'-'+q.type;
+      return !historyMap[hk]||historyMap[hk].correct===0;
+    });
+    if(!qs.length){toast('所有题目已掌握！');return}
+  }
   if(S.countMode==='sequential'){
     qs.sort((a,b)=>a.num-b.num);
     const prog=getSeqProgress();
@@ -828,8 +868,8 @@ function submitAnswer(userAns){
   document.getElementById('qProgressFill').style.width=((S.qIdx+1)/S.quizQ.length*100)+'%';
   // Update history
   updateHistory(q.subject,q.num,q.type,isCorrect);
-  // Update sequential progress
-  if(S.countMode==='sequential'){
+  // Update sequential progress (only for real setup quizzes)
+  if(S.countMode==='sequential'&&S.quizSource==='setup'){
     const filtered=getFilteredQuestions();
     filtered.sort((a,b)=>a.num-b.num);
     const idx=filtered.findIndex(x=>x.subject===q.subject&&x.num===q.num&&x.type===q.type);
