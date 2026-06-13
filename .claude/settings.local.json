@@ -29,7 +29,11 @@
       "Bash(git checkout *)",
       "PowerShell(Get-Process *)",
       "PowerShell(Get-Item *)",
-      "PowerShell(Get-Content *)"
+      "PowerShell(Get-Content *)",
+      "Bash(Get-Content *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(Get-Content \"D:\\\\projects\\\\Quiz2Pass\\\\index.html\" | Select-Object -Skip 331 -First 3 | ForEach-Object { $bytes = [System.Text.Encoding]::UTF8.GetBytes\\($_\\); Write-Output \\($bytes -join ' '\\) })",
+      "Bash(node *)"
     ]
   }
 }

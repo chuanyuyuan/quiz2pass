@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>两学刷题 · 高校教师资格备考</title>
 <script src="data.js"></script>
+<script src="knowledge_data.js"></script>
 <style>
 :root {
   --bg: #121214;
@@ -329,6 +330,28 @@ button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;-we
   background:var(--wrong-bg);border:1px solid rgba(224,108,108,0.25);color:var(--wrong);
 }
 .confirm-danger:active{background:rgba(224,108,108,0.18)}
+
+/* Knowledge memory */
+.knowledge-top{display:flex;gap:10px;align-items:center;margin-bottom:14px}
+.knowledge-top .chip-group{flex:1;margin:0}
+.knowledge-progress{font-size:0.78rem;color:var(--text-muted);white-space:nowrap}
+.mem-card-wrap{position:relative;margin-bottom:16px}
+.mem-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:20px;min-height:200px;
+}
+.mem-card .mem-topic{font-size:0.7rem;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.mem-card .mem-title{font-size:1.05rem;font-weight:600;color:var(--text);margin-bottom:14px}
+.mem-card .mem-body{font-size:0.9rem;color:var(--text-secondary);line-height:1.75;white-space:pre-line}
+.mem-actions{display:flex;gap:10px;margin-top:16px}
+.mem-actions button{
+  flex:1;padding:12px 8px;border-radius:var(--radius-sm);font-size:0.85rem;font-weight:500;
+  border:1px solid var(--border);transition:all .15s;cursor:pointer;background:var(--surface-alt);color:var(--text-secondary);
+}
+.mem-actions button:active{transform:scale(0.96)}
+.mem-no.active,.mem-no:active{background:var(--wrong-bg);border-color:rgba(224,108,108,0.3);color:var(--wrong)}
+.mem-yes.active,.mem-yes:active{background:rgba(163,190,140,0.15);border-color:rgba(163,190,140,0.3);color:var(--correct)}
+.mem-empty{text-align:center;padding:60px 20px;color:var(--text-muted);font-size:0.9rem;line-height:1.6}
 </style>
 </head>
 <body>
@@ -352,6 +375,7 @@ button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;-we
       <button class="btn-secondary" id="btnHistory">刷题记录 <span id="historyBadge" style="color:var(--gold)"></span></button>
       <button class="btn-secondary" id="btnFav">收藏 <span id="favBadge" style="color:var(--fav)"></span></button>
       <button class="btn-secondary" id="btnWrongReview">错题集 <span id="wrongCountBadge" style="color:var(--wrong)"></span></button>
+        <button class="btn-secondary" id="btnKnowledge">知识点记忆</button>
     </div>
     <div class="home-bottom" id="homeBottom"></div>
   </section>
@@ -468,6 +492,21 @@ button{cursor:pointer;border:none;background:none;font:inherit;color:inherit;-we
       <div class="chip" data-hs="none">未刷</div>
     </div>
     <div id="historyListContainer"></div>
+  </section>
+
+  <!-- Knowledge Memory -->
+  <section id="page-knowledge" class="page">
+    <div class="page-title">知识点记忆</div>
+    <div class="knowledge-top">
+      <div class="chip-group" id="memSubjFilter"></div>
+      <span class="knowledge-progress" id="memProgress"></span>
+    </div>
+    <div class="chip-group" style="margin-bottom:14px" id="memSortFilter">
+      <div class="chip active" data-ms="all">全部</div>
+      <div class="chip" data-ms="no">不会</div>
+      <div class="chip" data-ms="new">未记</div>
+    </div>
+    <div id="memCardArea"></div>
   </section>
 </div>
 
@@ -637,11 +676,14 @@ function showView(v){
   }else if(v==='history'){
     backBtn.style.visibility='visible';
     right.textContent=getHistoryStats().attempted+'题';renderHistory();
+  }else if(v==='knowledge'){
+    backBtn.style.visibility='visible';
+    renderKnowledge();
   }
 }
 document.getElementById('btnBack').addEventListener('click',()=>{
   if(S.view==='quiz'&&S.fromHistory)S.countMode=(S._restoreCountMode||'random');
-  const h={home:'home',setup:'home',quiz:S.quizSource||'setup',result:'home',fav:'home',wrong:'home',history:'home'};
+  const h={home:'home',setup:'home',quiz:S.quizSource||'setup',result:'home',fav:'home',wrong:'home',history:'home',knowledge:'home'};
   showView(h[S.view]||'home');
 });
 
@@ -685,6 +727,7 @@ document.getElementById('btnStartQuiz').addEventListener('click',()=>{
 document.getElementById('btnHistory').addEventListener('click',()=>showView('history'));
 document.getElementById('btnFav').addEventListener('click',()=>showView('fav'));
 document.getElementById('btnWrongReview').addEventListener('click',()=>showView('wrong'));
+document.getElementById('btnKnowledge').addEventListener('click',()=>showView('knowledge'));
 
 // ===== SETUP =====
 function renderSetup(){
@@ -831,7 +874,7 @@ function renderQuestion(){
   document.getElementById('qAccuracy').textContent=done?`正确率 ${acc}%`:'';
   const fk=q.subject+'-'+q.num+'-'+q.type;
   document.getElementById('btnStar').textContent=isFav(fk)?'★':'☆';
-  document.getElementById('qProgressFill').style.width=((S.qIdx+1)/total*100)+'%';
+  document.getElementById('qProgressFill').style.display='';
   const body=document.getElementById('quizBody');
   const isJudge=q.type==='判断',isMulti=q.type==='多选';
   const opts=q.options||{};
@@ -877,9 +920,9 @@ function submitAnswer(userAns){
   const isCorrect=userAns===correctAns;
   S.answered=true;S.answers[S.qIdx]=userAns;S.results[S.qIdx]=isCorrect;
   if(isCorrect)S.correctCount++;else S.wrongCount++;
-  document.getElementById('qProgressFill').style.width=((S.qIdx+1)/S.quizQ.length*100)+'%';
   // Update history
   updateHistory(q.subject,q.num,q.type,isCorrect);
+  document.getElementById('qProgressFill').style.width=((S.qIdx+1)/S.quizQ.length*100)+'%';
   // Update sequential progress (only for real setup quizzes)
   if(S.countMode==='sequential'&&S.quizSource==='setup'){
     const filtered=getFilteredQuestions();
@@ -1157,6 +1200,90 @@ document.getElementById('wrongFilter').addEventListener('click',(e)=>{
   chip.classList.add('active');if(chip.dataset.filter==='psych')chip.classList.add('active-psych');
   wrongFilter=chip.dataset.filter;renderWrongList();
 });
+
+// ===== KNOWLEDGE MEMORY =====
+let memMap={},memSubj='all',memSort='all';
+function loadMem(){try{const d=localStorage.getItem('q2p_mem');if(d)memMap=JSON.parse(d)}catch(e){}}
+function saveMem(){try{localStorage.setItem('q2p_mem',JSON.stringify(memMap))}catch(e){}}
+function getMemCards(){
+  let cards=[...KNOWLEDGE_CARDS];
+  if(memSubj!=='all')cards=cards.filter(c=>c.subj===memSubj||c.subj==='both');
+  if(memSort==='no')cards=cards.filter(c=>memMap[c.id]&&memMap[c.id].no);
+  else if(memSort==='new')cards=cards.filter(c=>!memMap[c.id]);
+  // Sort: 不会 first, then unrated, then 会
+  cards.sort((a,b)=>{
+    const va=memMap[a.id]?(memMap[a.id].no?0:2):1;
+    const vb=memMap[b.id]?(memMap[b.id].no?0:2):1;
+    return va-vb;
+  });
+  return cards;
+}
+function rateCard(id,no){
+  memMap[id]={no:no,time:Date.now()};
+  saveMem();
+  nextCard();
+}
+let memCards=[],memIdx=0;
+function nextCard(){
+  const cards=getMemCards();
+  memCards=cards;memIdx=0;
+  renderCard();
+}
+function renderKnowledge(){
+  loadMem();
+  // Build subject filter chips
+  const subjChips=[{v:'all',t:'全部'},{v:'edu',t:'高等教育学'},{v:'psych',t:'高等教育心理学'}];
+  document.getElementById('memSubjFilter').innerHTML=subjChips.map(s=>
+    `<div class="chip${memSubj===s.v?' active':''}" data-msb="${s.v}">${s.t}</div>`
+  ).join('');
+  // Attach listeners
+  document.querySelectorAll('#memSubjFilter .chip').forEach(c=>{
+    c.addEventListener('click',()=>{
+      document.querySelectorAll('#memSubjFilter .chip').forEach(x=>x.classList.remove('active'));
+      c.classList.add('active');memSubj=c.dataset.msb;memIdx=0;renderCard();
+    });
+  });
+  document.querySelectorAll('#memSortFilter .chip').forEach(c=>{
+    c.addEventListener('click',()=>{
+      document.querySelectorAll('#memSortFilter .chip').forEach(x=>x.classList.remove('active'));
+      c.classList.add('active');memSort=c.dataset.ms;memIdx=0;renderCard();
+    });
+  });
+  memCards=getMemCards();memIdx=0;
+  renderCard();
+}
+function renderCard(){
+  const cards=getMemCards();
+  memCards=cards;
+  if(memIdx>=cards.length){
+    const total=KNOWLEDGE_CARDS.length;
+    const done=Object.keys(memMap).length;
+    const yes=Object.values(memMap).filter(v=>!v.no).length;
+    document.getElementById('memCardArea').innerHTML=
+      `<div class="mem-empty">本轮已记完<br><b>已记 ${done}/${total} · 会 ${yes}</b></div>`;
+    document.getElementById('memProgress').textContent=`${done}/${total}`;
+    return;
+  }
+  const card=cards[memIdx];
+  const mem=memMap[card.id];
+  const isNo=mem&&mem.no;
+  const isYes=mem&&!mem.no;
+  document.getElementById('memCardArea').innerHTML=
+    `<div class="mem-card">
+      <div class="mem-topic">${card.topic}</div>
+      <div class="mem-title">${card.title}</div>
+      <div class="mem-body">${card.content}</div>
+    </div>
+    <div class="mem-actions">
+      <button class="mem-no${isNo?' active':''}" id="memNo">不会</button>
+      <button class="mem-yes${isYes?' active':''}" id="memYes">会</button>
+    </div>`;
+  document.getElementById('memNo').addEventListener('click',()=>rateCard(card.id,true));
+  document.getElementById('memYes').addEventListener('click',()=>rateCard(card.id,false));
+  const total=KNOWLEDGE_CARDS.length;
+  const done=Object.keys(memMap).length;
+  document.getElementById('memProgress').textContent=`${done}/${total} · ${memIdx+1}/${cards.length}`;
+}
 
 // ===== INIT =====
 document.addEventListener('copy',e=>e.preventDefault());

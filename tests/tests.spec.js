@@ -120,11 +120,12 @@ test.describe('Home Page', () => {
     await expect(page.locator('#homeBottom')).toContainText('973');
   });
 
-  test('has 4 action buttons', async ({ page }) => {
+  test('has 5 action buttons', async ({ page }) => {
     await expect(page.locator('#btnStartQuiz')).toBeVisible();
     await expect(page.locator('#btnFav')).toBeVisible();
     await expect(page.locator('#btnHistory')).toBeVisible();
     await expect(page.locator('#btnWrongReview')).toBeVisible();
+    await expect(page.locator('#btnKnowledge')).toBeVisible();
   });
 
   test('clicking subject card goes to setup with correct subject', async ({ page }) => {
@@ -1069,6 +1070,91 @@ test.describe('Navigation Flow', () => {
     await expect(page.locator('#page-fav')).toHaveClass(/active/);
     await page.locator('#btnBack').click();
     await expect(page.locator('#page-home')).toHaveClass(/active/);
+  });
+
+  test('home -> knowledge -> home', async ({ page }) => {
+    await page.locator('#btnKnowledge').click();
+    await expect(page.locator('#page-knowledge')).toHaveClass(/active/);
+    await page.locator('#btnBack').click();
+    await expect(page.locator('#page-home')).toHaveClass(/active/);
+  });
+});
+
+// ──────────────────────────────────────────────
+// KNOWLEDGE MEMORY
+// ──────────────────────────────────────────────
+test.describe('Knowledge Memory', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('http://localhost:8080/index.html');
+    await page.waitForFunction(() => typeof KNOWLEDGE_CARDS !== 'undefined' && KNOWLEDGE_CARDS.length > 0);
+  });
+
+  test('knowledge page loads with card content', async ({ page }) => {
+    await page.locator('#btnKnowledge').click();
+    await expect(page.locator('#page-knowledge')).toHaveClass(/active/);
+    await expect(page.locator('.mem-card .mem-title')).toBeVisible();
+    await expect(page.locator('.mem-card .mem-body')).toBeVisible();
+    await expect(page.locator('.mem-actions button')).toHaveCount(2);
+  });
+
+  test('subject filter switches card set', async ({ page }) => {
+    await page.locator('#btnKnowledge').click();
+    await page.locator('#memSubjFilter .chip:nth-child(2)').click();
+    await expect(page.locator('#memSubjFilter .chip:nth-child(2)')).toHaveClass(/active/);
+    const topic = await page.locator('.mem-card .mem-topic').textContent();
+    expect(topic).toBeTruthy();
+  });
+
+  test('memory rating works and persists', async ({ page }) => {
+    await page.locator('#btnKnowledge').click();
+    await page.locator('#memYes').click();
+    const progress = await page.locator('#memProgress').textContent();
+    expect(progress).toContain('1/');
+    await page.reload();
+    await page.waitForFunction(() => typeof KNOWLEDGE_CARDS !== 'undefined');
+    await page.locator('#btnKnowledge').click();
+    const memMap = await page.evaluate(() => { loadMem(); return memMap; });
+    const key = Object.keys(memMap)[0];
+    expect(key).toBeTruthy();
+    expect(memMap[key].no).toBe(false);
+  });
+
+  test('不会 filter shows only wrong cards', async ({ page }) => {
+    await page.evaluate(() => {
+      memMap = {
+        'edu-1': { no: true, time: Date.now() },
+        'edu-2': { no: false, time: Date.now() },
+        'edu-3': { no: true, time: Date.now() }
+      };
+      saveMem();
+    });
+    await page.locator('#btnKnowledge').click();
+    await page.locator('#memSortFilter .chip:nth-child(2)').click();
+    const ok = await page.evaluate(() => { renderKnowledge(); return memCards.length===2 && memCards.every(c => memMap[c.id] && memMap[c.id].no); });
+    expect(ok).toBe(true);
+  });
+
+  test('new filter shows only unmemorized cards', async ({ page }) => {
+    await page.evaluate(() => {
+      memMap = { 'edu-1': { no: false, time: Date.now() } };
+      saveMem();
+    });
+    await page.locator('#btnKnowledge').click();
+    await page.locator('#memSortFilter .chip:nth-child(3)').click();
+    const showNew = await page.evaluate(() => { renderKnowledge(); return memCards.every(c => !memMap[c.id]); });
+    expect(showNew).toBe(true);
+  });
+
+  test('all done shows empty state', async ({ page }) => {
+    await page.evaluate(() => {
+      memMap = {};
+      for (const c of KNOWLEDGE_CARDS) memMap[c.id] = { no: false, time: Date.now() };
+      saveMem();
+    });
+    await page.locator('#btnKnowledge').click();
+    await page.locator('#memSortFilter .chip:nth-child(3)').click();
+    const text = await page.locator('.mem-empty').textContent();
+    expect(text).toContain('已记完');
   });
 });
 
